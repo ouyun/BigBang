@@ -387,6 +387,7 @@ void CMiner::LaunchMiner()
 
         uint32& nTime = *((uint32*)&work.vchWorkData[4]);
         uint64_t& nNonce = *(uint64_t*)&work.vchWorkData[work.vchWorkData.size() - sizeof(uint64_t)];
+        int nBlockHeight = work.nPrevBlockHeight + 1;
 
         if (work.nAlgo == CM_CRYPTONIGHT)
         {
@@ -401,7 +402,7 @@ void CMiner::LaunchMiner()
                 }
                 for (int i = 0; i < 100 * 1024; i++, nNonce++)
                 {
-                    uint256 hash = crypto::CryptoPowHash(&work.vchWorkData[0], work.vchWorkData.size());
+                    uint256 hash = crypto::CryptoPowHash(nBlockHeight, &work.vchWorkData[0], work.vchWorkData.size());
                     if (hash <= hashTarget)
                     {
                         cout << "Proof-of-work found\n hash : " << hash.GetHex() << "\ntarget : " << hashTarget.GetHex() << "\n";

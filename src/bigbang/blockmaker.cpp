@@ -30,9 +30,9 @@ class CHashAlgo_Cryptonight : public bigbang::CBlockMakerHashAlgo
 public:
     CHashAlgo_Cryptonight(int64 nHashRateIn)
       : CBlockMakerHashAlgo("Cryptonight", nHashRateIn) {}
-    uint256 Hash(const std::vector<unsigned char>& vchData)
+    uint256 Hash(int nHeight, const std::vector<unsigned char>& vchData)
     {
-        return crypto::CryptoPowHash(&vchData[0], vchData.size());
+        return crypto::CryptoPowHash(nHeight, &vchData[0], vchData.size());
     }
 };
 
@@ -565,6 +565,7 @@ bool CBlockMaker::CreateProofOfWork(CBlock& block, CBlockMakerHashAlgo* pHashAlg
     int64& nHashRate = pHashAlgo->nHashRate;
     int64 nHashComputeCount = 0;
     int64 nHashComputeBeginTime = GetTime();
+    int nBlockHeight = block.GetBlockHeight();
 
     Log("Proof-of-work: start hash compute, difficulty bits: (%d)", nBits);
 
@@ -575,7 +576,7 @@ bool CBlockMaker::CreateProofOfWork(CBlock& block, CBlockMakerHashAlgo* pHashAlg
             nHashRate = 1;
         for (int i = 0; i < nHashRate; i++)
         {
-            uint256 hash = pHashAlgo->Hash(vchProofOfWork);
+            uint256 hash = pHashAlgo->Hash(nBlockHeight, vchProofOfWork);
             nHashComputeCount++;
             if (hash <= hashTarget)
             {
@@ -585,8 +586,8 @@ bool CBlockMaker::CreateProofOfWork(CBlock& block, CBlockMakerHashAlgo* pHashAlg
 
                 int64 nDuration = GetTime() - nHashComputeBeginTime;
                 int nCompHashRate = ((nDuration <= 0) ? 0 : (nHashComputeCount / nDuration));
-                Log("Proof-of-work: block found (%s), compute: (rate:%ld, count:%ld, duration:%lds, hashrate:%ld), difficulty bits: (%d)\nhash :   %s\ntarget : %s",
-                    pHashAlgo->strAlgo.c_str(), nHashRate, nHashComputeCount, nDuration, nCompHashRate, nBits,
+                Log("Proof-of-work: block found (%s), height: %d, compute: (rate:%ld, count:%ld, duration:%lds, hashrate:%ld), difficulty bits: (%d)\nhash :   %s\ntarget : %s",
+                    pHashAlgo->strAlgo.c_str(), nBlockHeight, nHashRate, nHashComputeCount, nDuration, nCompHashRate, nBits,
                     hash.GetHex().c_str(), hashTarget.GetHex().c_str());
                 return true;
             }

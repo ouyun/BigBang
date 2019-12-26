@@ -17,7 +17,7 @@ public:
     CBlockMakerHashAlgo(const std::string& strAlgoIn, int64 nHashRateIn)
       : strAlgo(strAlgoIn), nHashRate(nHashRateIn) {}
     virtual ~CBlockMakerHashAlgo() {}
-    virtual uint256 Hash(const std::vector<unsigned char>& vchData) = 0;
+    virtual uint256 Hash(int nHeight, const std::vector<unsigned char>& vchData) = 0;
 
 public:
     const std::string strAlgo;

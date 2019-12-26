@@ -86,7 +86,7 @@ void CryptoGetRand256(uint256& u);
 // Hash
 uint256 CryptoHash(const void* msg, std::size_t len);
 uint256 CryptoHash(const uint256& h1, const uint256& h2);
-uint256 CryptoPowHash(const void* msg, size_t len);
+uint256 CryptoPowHash(int height, const void* msg, size_t len);
 
 // Sign & verify
 struct CCryptoKey

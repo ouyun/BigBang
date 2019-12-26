@@ -370,7 +370,7 @@ Errno CCoreProtocol::VerifyProofOfWork(const CBlock& block, const CBlockIndex* p
 
     vector<unsigned char> vchProofOfWork;
     block.GetSerializedProofOfWorkData(vchProofOfWork);
-    uint256 hash = crypto::CryptoPowHash(&vchProofOfWork[0], vchProofOfWork.size());
+    uint256 hash = crypto::CryptoPowHash(block.GetBlockHeight(), &vchProofOfWork[0], vchProofOfWork.size());
 
     if (hash > hashTarget)
     {

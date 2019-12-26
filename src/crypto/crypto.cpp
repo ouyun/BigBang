@@ -113,10 +113,17 @@ uint256 CryptoHash(const uint256& h1, const uint256& h2)
     return hash;
 }
 
-uint256 CryptoPowHash(const void* msg, size_t len)
+uint256 CryptoPowHash(int height, const void* msg, size_t len)
 {
     uint256 hash;
-    cn_slow_hash(msg, len, (char*)hash.begin(), 2, 0, 0);
+    if (height < 20)
+    {
+        cn_slow_hash(msg, len, (char*)hash.begin(), 2, 0, 0, 27);
+    }
+    else
+    {
+        cn_slow_hash(msg, len, (char*)hash.begin(), 2, 0, 0, 500);
+    }
     return hash;
 }
 
