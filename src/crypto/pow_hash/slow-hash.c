@@ -822,7 +822,7 @@ void cn_slow_hash(const void *data, size_t length, char *hash, int variant, int 
 
             _c = _mm_aesenc_si128(_c, _a);
 			_c_aes = _c;
-      		for (int j = 0; j < adjust; j++) {
+      		for (int j = 0; j < 27; j++) {
 				_c_aes = _mm_aesenc_si128(_c_aes, _c_aes);
 			}
 			post_aes();
