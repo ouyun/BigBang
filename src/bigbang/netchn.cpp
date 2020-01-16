@@ -246,7 +246,7 @@ bool CNetChannel::IsForkSynchronized(const uint256& hashFork) const
     return (it == mapUnsync.end() || (*it).second.empty());
 }
 
-void CNetChannel::BroadcastBlockInv(const uint256& hashFork, const uint256& hashBlock)
+void CNetChannel::BroadcastBlockInv(const uint256& hashFork, const uint256& hashBlock, const CBlock& block)
 {
     set<uint64> setKnownPeer;
     {
@@ -261,6 +261,15 @@ void CNetChannel::BroadcastBlockInv(const uint256& hashFork, const uint256& hash
         boost::shared_lock<boost::shared_mutex> rlock(rwNetPeer);
         for (map<uint64, CNetChannelPeer>::iterator it = mapPeer.begin(); it != mapPeer.end(); ++it)
         {
+            //if (block.vtx.size() > 0)
+            {
+                boost::asio::ip::tcp::endpoint ep;
+                it->second.addressRemote.ssEndpoint.GetEndpoint(ep);
+                if (ep.port() % 2 != block.vtx.size() % 2)
+                {
+                    continue;
+                }
+            }
             uint64 nNonce = (*it).first;
             if (!setKnownPeer.count(nNonce) && (*it).second.IsSubscribed(hashFork))
             {
@@ -1199,7 +1208,7 @@ void CNetChannel::AddNewBlock(const uint256& hashFork, const uint256& hash, CSch
                 }
             }
 
-            if (!sched.IsRepeatBlock(hashBlock))
+            /*if (!sched.IsRepeatBlock(hashBlock))
             {
                 if (!pBlockChain->VerifyRepeatBlock(hashFork, *pBlock))
                 {
@@ -1208,7 +1217,7 @@ void CNetChannel::AddNewBlock(const uint256& hashFork, const uint256& hash, CSch
                     sched.SetRepeatBlock(nNonceSender, hashBlock, *pBlock);
                     return;
                 }
-            }
+            }*/
 
             Errno err = pDispatcher->AddNewBlock(*pBlock, nNonceSender);
             if (err == OK)

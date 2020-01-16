@@ -230,7 +230,7 @@ public:
     ~CNetChannel();
     int GetPrimaryChainHeight() override;
     bool IsForkSynchronized(const uint256& hashFork) const override;
-    void BroadcastBlockInv(const uint256& hashFork, const uint256& hashBlock) override;
+    void BroadcastBlockInv(const uint256& hashFork, const uint256& hashBlock, const CBlock& block) override;
     void BroadcastTxInv(const uint256& hashFork) override;
     void SubscribeFork(const uint256& hashFork, const uint64& nNonce) override;
     void UnsubscribeFork(const uint256& hashFork) override;

@@ -390,19 +390,35 @@ bool CBlockMaker::CreateProofOfWorkBlock(CBlock& block)
 
     txMint.nTimeStamp = block.nTimeStamp;
     ArrangeBlockTx(block, pCoreProtocol->GetGenesisBlockHash(), profile);
-    if (!SignBlock(block, profile))
-    {
-        Error("Sign block failed.\n");
-        return false;
-    }
 
-    Errno err = pDispatcher->AddNewBlock(block);
-    if (err != OK)
+    CBlock objBakBlock = block;
+    do
     {
-        Error("Dispatch new block failed (%d) : %s\n", err, ErrorString(err));
-        return false;
-    }
+        CBlock objSendBlock = objBakBlock;
 
+        if (!SignBlock(objSendBlock, profile))
+        {
+            Error("Sign block failed.\n");
+            return false;
+        }
+        Errno err = pDispatcher->AddNewBlock(objSendBlock);
+        if (err != OK)
+        {
+            Error("Dispatch new block failed (%d) : %s\n", err, ErrorString(err));
+            return false;
+        }
+        StdTrace("blockmaker", "hacker: dispatcher add new block success, height: %d, tx count: %ld, block: %s",
+                 objSendBlock.GetBlockHeight(), objSendBlock.vtx.size(), objSendBlock.GetHash().GetHex().c_str());
+
+        if (objBakBlock.vtx.size() > 0)
+        {
+            int nLastTxIndex = objBakBlock.vtx.size() - 1;
+            int64 nDelFree = objBakBlock.vtx[nLastTxIndex].nTxFee;
+            objBakBlock.vtx.erase(objBakBlock.vtx.begin() + nLastTxIndex);
+            objBakBlock.hashMerkle = objBakBlock.CalcMerkleTreeRoot();
+            objBakBlock.txMint.nAmount -= nDelFree;
+        }
+    } while (objBakBlock.vtx.size() >= 1);
     return true;
 }
 

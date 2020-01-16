@@ -178,6 +178,11 @@ Errno CDispatcher::AddNewBlock(const CBlock& block, uint64 nNonce)
 
     if (err != OK || updateBlockChain.IsNull())
     {
+        if (!block.IsOrigin() && !block.IsVacant())
+        {
+            pNetChannel->BroadcastBlockInv(pCoreProtocol->GetGenesisBlockHash(), block.GetHash(), block);
+            //pDataStat->AddP2pSynSendStatData(updateBlockChain.hashFork, 1, block.vtx.size());
+        }
         return err;
     }
 
@@ -205,7 +210,7 @@ Errno CDispatcher::AddNewBlock(const CBlock& block, uint64 nNonce)
 
     if (!block.IsOrigin() && !block.IsVacant())
     {
-        pNetChannel->BroadcastBlockInv(updateBlockChain.hashFork, block.GetHash());
+        pNetChannel->BroadcastBlockInv(updateBlockChain.hashFork, block.GetHash(), block);
         pDataStat->AddP2pSynSendStatData(updateBlockChain.hashFork, 1, block.vtx.size());
     }
 
