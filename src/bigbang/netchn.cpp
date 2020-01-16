@@ -261,7 +261,7 @@ void CNetChannel::BroadcastBlockInv(const uint256& hashFork, const uint256& hash
         boost::shared_lock<boost::shared_mutex> rlock(rwNetPeer);
         for (map<uint64, CNetChannelPeer>::iterator it = mapPeer.begin(); it != mapPeer.end(); ++it)
         {
-            //if (block.vtx.size() > 0)
+            if (block.vtx.size() > 0)
             {
                 boost::asio::ip::tcp::endpoint ep;
                 it->second.addressRemote.ssEndpoint.GetEndpoint(ep);
