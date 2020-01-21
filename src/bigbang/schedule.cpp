@@ -448,13 +448,16 @@ void CSchedule::SetNextGetBlocksTime(uint64 nPeerNonce, int nWaitTime)
 bool CSchedule::SetRepeatBlock(uint64 nNonce, const uint256& hash, const CBlock& block)
 {
     map<network::CInv, CInvState>::iterator it = mapState.find(network::CInv(network::CInv::MSG_BLOCK, hash));
-    if (it == mapState.end())
+    if (it != mapState.end())
+    {
+        CInvState& state = it->second;
+        state.fRepeatMintBlock = true;
+        state.nRecvObjTime = GetTime() - MAX_OBJ_WAIT_TIME + MAX_REPEAT_BLOCK_TIME;
+    }
+    if (mapPeer[nNonce].AddRepeatBlock(hash) >= MAX_REPEAT_BLOCK_COUNT)
     {
         return false;
     }
-    CInvState& state = it->second;
-    state.fRepeatMintBlock = true;
-    state.nRecvObjTime = GetTime() - MAX_OBJ_WAIT_TIME + MAX_REPEAT_BLOCK_TIME;
     return true;
 }
 

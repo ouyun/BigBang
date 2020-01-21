@@ -29,6 +29,7 @@ class CInvPeer
         CUInt256List listKnown;
         std::set<uint256> setAssigned;
         int64 nNextGetBlocksTime;
+        std::map<int, std::set<uint256>> mapRepeat;
     };
 
 public:
@@ -79,6 +80,10 @@ public:
         CUInt256ByValue& idxByValue = listKnown.get<1>();
         idxByValue.erase(inv.nHash);
         GetAssigned(inv.nType).erase(inv.nHash);
+        if (inv.nType == network::CInv::MSG_BLOCK)
+        {
+            invKnown[network::CInv::MSG_BLOCK - network::CInv::MSG_TX].mapRepeat[CBlock::GetBlockHeightByHash(inv.nHash)].erase(inv.nHash);
+        }
     }
     bool KnownInvExists(const network::CInv& inv)
     {
@@ -148,6 +153,16 @@ public:
     {
         return (GetTime() >= invKnown[network::CInv::MSG_BLOCK - network::CInv::MSG_TX].nNextGetBlocksTime);
     }
+    int64 AddRepeatBlock(const uint256& hash)
+    {
+        if (KnownInvExists(network::CInv(network::CInv::MSG_BLOCK, hash)))
+        {
+            std::set<uint256>& setHash = invKnown[network::CInv::MSG_BLOCK - network::CInv::MSG_TX].mapRepeat[CBlock::GetBlockHeightByHash(hash)];
+            setHash.insert(hash);
+            return setHash.size();
+        }
+        return 0;
+    }
 
 public:
     CInvPeerState invKnown[2];
@@ -203,7 +218,8 @@ public:
         MAX_REGETDATA_COUNT = 10,
         MAX_INV_WAIT_TIME = 3600,
         MAX_OBJ_WAIT_TIME = 7200,
-        MAX_REPEAT_BLOCK_TIME = 180
+        MAX_REPEAT_BLOCK_TIME = 180,
+        MAX_REPEAT_BLOCK_COUNT = 4
     };
 
 public:
