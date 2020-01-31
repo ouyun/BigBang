@@ -29,7 +29,7 @@ class CInvPeer
         CUInt256List listKnown;
         std::set<uint256> setAssigned;
         int64 nNextGetBlocksTime;
-        std::map<int, std::set<uint256>> mapRepeat;
+        std::map<uint32, std::set<uint256>> mapRepeat;
     };
 
 public:
@@ -82,7 +82,16 @@ public:
         GetAssigned(inv.nType).erase(inv.nHash);
         if (inv.nType == network::CInv::MSG_BLOCK)
         {
-            invKnown[network::CInv::MSG_BLOCK - network::CInv::MSG_TX].mapRepeat[CBlock::GetBlockHeightByHash(inv.nHash)].erase(inv.nHash);
+            std::map<uint32, std::set<uint256>>& mapData = invKnown[network::CInv::MSG_BLOCK - network::CInv::MSG_TX].mapRepeat;
+            std::map<uint32, std::set<uint256>>::iterator it = mapData.find(CBlock::GetBlockHeightByHash(inv.nHash));
+            if (it != mapData.end())
+            {
+                it->second.erase(inv.nHash);
+                if (it->second.empty())
+                {
+                    mapData.erase(it);
+                }
+            }
         }
     }
     bool KnownInvExists(const network::CInv& inv)
@@ -248,7 +257,7 @@ public:
     int GetLocatorInvBlockHash(uint64 nPeerNonce, uint256& hashBlock);
     void SetLocatorInvBlockHash(uint64 nPeerNonce, int nHeight, const uint256& hashBlock, const uint256& hashNext);
     void SetNextGetBlocksTime(uint64 nPeerNonce, int nWaitTime);
-    bool SetRepeatBlock(uint64 nNonce, const uint256& hash, const CBlock& block);
+    bool SetRepeatBlock(uint64 nNonce, const uint256& hash);
     bool IsRepeatBlock(const uint256& hash);
 
 protected:
