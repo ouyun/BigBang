@@ -1,4 +1,4 @@
-// Copyright (c) 2019 The Bigbang developers
+// Copyright (c) 2019-2020 The Bigbang developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -506,7 +506,7 @@ Errno CBlockChain::AddNewBlock(const CBlock& block, CBlockChainUpdate& update)
         return ERR_SYS_STORAGE_ERROR;
     }
 
-    if (!update.vBlockAddNew.empty() || !update.vBlockRemove.empty())
+    if (!update.vBlockRemove.empty())
     {
         uint32 nTxAdd = 0;
         for (const auto& b : update.vBlockAddNew)
