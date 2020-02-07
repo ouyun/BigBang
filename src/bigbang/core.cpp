@@ -7,6 +7,7 @@
 #include "../common/template/exchange.h"
 #include "address.h"
 #include "wallet.h"
+#include "defs.h"
 
 using namespace std;
 using namespace xengine;
@@ -647,13 +648,28 @@ bool CCoreProtocol::GetProofOfWorkTarget(const CBlockIndex* pIndexPrev, int nAlg
         }
     }
     nSpacing /= nWeight;
-    if (nSpacing > nProofOfWorkUpperTarget && nBits > nProofOfWorkLowerLimit)
+
+    if (pIndex->GetBlockHeight() < HEIGHT_HASH_POW_ADJUST)
     {
-        nBits--;
+        if (nSpacing > nProofOfWorkUpperTarget && nBits > nProofOfWorkLowerLimit)
+        {   
+            nBits--;
+        }
+        else if (nSpacing < nProofOfWorkLowerTarget && nBits < nProofOfWorkUpperLimit)
+        {
+            nBits++;
+        }
     }
-    else if (nSpacing < nProofOfWorkLowerTarget && nBits < nProofOfWorkUpperLimit)
+    else
     {
-        nBits++;
+        if (nSpacing > 60 && nBits > nProofOfWorkLowerLimit)
+        {   
+            nBits--;
+        }
+        else if (nSpacing < 60 && nBits < nProofOfWorkUpperLimit)
+        {
+            nBits++;
+        }
     }
     return true;
 }

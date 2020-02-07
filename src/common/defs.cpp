@@ -6,3 +6,7 @@
 
 //hard fork: change of hash algorithm and its input, and update of template address of multiple signature
 unsigned int HEIGHT_HASH_MULTI_SIGNER = HEIGHT_HASH_MULTI_SIGNER_MAINNET;
+
+// hard fork: change of hash algorithm and its input, and pow adjust.
+unsigned int HEIGHT_HASH_POW_ADJUST = HEIGHT_HASH_POW_ADJUST_MAINNET;
+
