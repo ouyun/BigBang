@@ -4,23 +4,27 @@
 
 #include "entry.h"
 
+#if !defined(WIN32) && !defined(__APPLE__)
+#include <malloc.h>
+#endif
 #include <map>
 #include <string>
 
 #include "blockchain.h"
 #include "blockmaker.h"
-// #include "consensus.h"
+#include "checkrepair.h"
+#include "consensus.h"
 #include "core.h"
 #include "datastat.h"
-// #include "delegatedchn.h"
-#include "checkrepair.h"
 #include "defs.h"
+#include "delegatedchn.h"
 #include "dispatcher.h"
 #include "forkmanager.h"
 #include "miner.h"
 #include "netchn.h"
 #include "network.h"
 #include "purger.h"
+#include "recovery.h"
 #include "rpcclient.h"
 #include "rpcmod.h"
 #include "service.h"
@@ -184,6 +188,10 @@ bool CBbEntry::Initialize(int argc, char* argv[])
         StdLog("Bigbang", "Check and repair data complete.");
     }
 
+#if !defined(WIN32) && !defined(__APPLE__)
+    StdLog("Bigbang", "malloc_trim: %d.", malloc_trim(0));
+#endif
+
     // docker
     if (!docker.Initialize(config.GetConfig(), &log))
     {
@@ -196,10 +204,12 @@ bool CBbEntry::Initialize(int argc, char* argv[])
     if (config.GetConfig()->fTestNet)
     {
         HEIGHT_HASH_MULTI_SIGNER = HEIGHT_HASH_MULTI_SIGNER_TESTNET;
+        HEIGHT_HASH_TX_DATA = HEIGHT_HASH_TX_DATA_TESTNET;
     }
     else
     {
         HEIGHT_HASH_MULTI_SIGNER = HEIGHT_HASH_MULTI_SIGNER_MAINNET;
+        HEIGHT_HASH_TX_DATA = HEIGHT_HASH_TX_DATA_MAINNET;
     }
 
     // modules
@@ -291,14 +301,14 @@ bool CBbEntry::InitializeModules(const EModeType& mode)
             }
             break;
         }
-        // case EModuleType::DELEGATEDCHANNEL:
-        // {
-        //     if (!AttachModule(new CDelegatedChannel()))
-        //     {
-        //         return false;
-        //     }
-        //     break;
-        // }
+        case EModuleType::DELEGATEDCHANNEL:
+        {
+            if (!AttachModule(new CDelegatedChannel()))
+            {
+                return false;
+            }
+            break;
+        }
         case EModuleType::NETWORK:
         {
             if (!AttachModule(new CNetwork()))
@@ -380,17 +390,25 @@ bool CBbEntry::InitializeModules(const EModeType& mode)
             }
             break;
         }
-        // case EModuleType::CONSENSUS:
-        // {
-        //     if (!AttachModule(new CConsensus()))
-        //     {
-        //         return false;
-        //     }
-        //     break;
-        // }
+        case EModuleType::CONSENSUS:
+        {
+            if (!AttachModule(new CConsensus()))
+            {
+                return false;
+            }
+            break;
+        }
         case EModuleType::DATASTAT:
         {
             if (!AttachModule(new CDataStat()))
+            {
+                return false;
+            }
+            break;
+        }
+        case EModuleType::RECOVERY:
+        {
+            if (!AttachModule(new CRecovery()))
             {
                 return false;
             }

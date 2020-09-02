@@ -14,6 +14,9 @@
 
 namespace xengine
 {
+
+//#define BIGBANG_TESTNET
+
 extern bool STD_DEBUG;
 
 void SetThreadName(const char* name);
@@ -27,6 +30,11 @@ inline int64 GetTime()
     using namespace boost::posix_time;
     static ptime epoch(boost::gregorian::date(1970, 1, 1));
     return int64((second_clock::universal_time() - epoch).total_seconds());
+}
+
+inline bool IsDoubleEqual(double a, double b)
+{
+    return std::abs(a - b) < std::abs(std::min(a, b)) * std::numeric_limits<double>::epsilon();
 }
 
 inline int64 GetLocalTimeSeconds()
@@ -298,6 +306,11 @@ inline uint64 BSwap64(uint64 n)
     n = ((n & 0xff00ff00ff00ff00ULL) >> 8) | ((n & 0x00ff00ff00ff00ffULL) << 8);
     n = ((n & 0xffff0000ffff0000ULL) >> 16) | ((n & 0x0000ffff0000ffffULL) << 16);
     return (n >> 32) | (n << 32);
+}
+
+inline double ValueFromToken(uint64 amount)
+{
+    return ((double)amount / (double)1000000);
 }
 
 } // namespace xengine

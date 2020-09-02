@@ -92,6 +92,8 @@ private:
     rpc::CRPCResultPtr RPCGetTransaction(rpc::CRPCParamPtr param);
     rpc::CRPCResultPtr RPCSendTransaction(rpc::CRPCParamPtr param);
     rpc::CRPCResultPtr RPCGetForkHeight(rpc::CRPCParamPtr param);
+    rpc::CRPCResultPtr RPCGetVotes(rpc::CRPCParamPtr param);
+    rpc::CRPCResultPtr RPCListDelegate(rpc::CRPCParamPtr param);
     /* Wallet */
     rpc::CRPCResultPtr RPCListKey(rpc::CRPCParamPtr param);
     rpc::CRPCResultPtr RPCGetNewKey(rpc::CRPCParamPtr param);
@@ -117,6 +119,8 @@ private:
     rpc::CRPCResultPtr RPCExportWallet(rpc::CRPCParamPtr param);
     rpc::CRPCResultPtr RPCImportWallet(rpc::CRPCParamPtr param);
     rpc::CRPCResultPtr RPCMakeOrigin(rpc::CRPCParamPtr param);
+    rpc::CRPCResultPtr RPCSignRawTransactionWithWallet(rpc::CRPCParamPtr param);
+    rpc::CRPCResultPtr RPCSendRawTransaction(rpc::CRPCParamPtr param);
     /* Util */
     rpc::CRPCResultPtr RPCVerifyMessage(rpc::CRPCParamPtr param);
     rpc::CRPCResultPtr RPCMakeKeyPair(rpc::CRPCParamPtr param);
@@ -124,6 +128,7 @@ private:
     rpc::CRPCResultPtr RPCGetTemplateAddress(rpc::CRPCParamPtr param);
     rpc::CRPCResultPtr RPCMakeTemplate(rpc::CRPCParamPtr param);
     rpc::CRPCResultPtr RPCDecodeTransaction(rpc::CRPCParamPtr param);
+    rpc::CRPCResultPtr RPCGetTxFee(rpc::CRPCParamPtr param);
     rpc::CRPCResultPtr RPCListUnspent(rpc::CRPCParamPtr param);
     /* Mint */
     rpc::CRPCResultPtr RPCGetWork(rpc::CRPCParamPtr param);
@@ -135,6 +140,7 @@ protected:
     ICoreProtocol* pCoreProtocol;
     IService* pService;
     IDataStat* pDataStat;
+    IForkManager* pForkManager;
 
 private:
     std::map<std::string, RPCFunc> mapRPCFunc;

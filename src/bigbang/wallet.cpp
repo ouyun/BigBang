@@ -4,10 +4,14 @@
 
 #include "wallet.h"
 
+#include "../common/template/exchange.h"
 #include "address.h"
 #include "defs.h"
+#include "template/delegate.h"
+#include "template/mint.h"
+#include "template/payment.h"
+#include "template/vote.h"
 
-// #include "../common/template/exchange.h"
 using namespace std;
 using namespace xengine;
 
@@ -15,7 +19,7 @@ namespace bigbang
 {
 
 #define MAX_TXIN_SELECTIONS 128
-#define MAX_SIGNATURE_SIZE 2048
+//#define MAX_SIGNATURE_SIZE 2048
 
 //////////////////////////////
 // CDBAddressWalker
@@ -198,11 +202,11 @@ bool CWallet::HandleInvoke()
         return false;
     }
 
-    if (!InspectWalletTx(StorageConfig()->nCheckDepth))
+    /*if (!InspectWalletTx(StorageConfig()->nCheckDepth))
     {
         Log("Failed to inspect wallet transactions");
         return false;
-    }
+    }*/
 
     return true;
 }
@@ -419,8 +423,18 @@ void CWallet::AutoLock(uint32 nTimerId, const crypto::CPubKey& pubkey)
 
 bool CWallet::Sign(const crypto::CPubKey& pubkey, const uint256& hash, vector<uint8>& vchSig)
 {
-    boost::shared_lock<boost::shared_mutex> rlock(rwKeyStore);
-    return SignPubKey(pubkey, hash, vchSig);
+    set<crypto::CPubKey> setSignedKey;
+    bool ret;
+    {
+        boost::shared_lock<boost::shared_mutex> rlock(rwKeyStore);
+        ret = SignPubKey(pubkey, hash, vchSig, setSignedKey);
+    }
+
+    if (ret)
+    {
+        UpdateAutoLock(setSignedKey);
+    }
+    return ret;
 }
 
 bool CWallet::LoadTemplate(CTemplatePtr ptr)
@@ -531,61 +545,147 @@ bool CWallet::GetBalance(const CDestination& dest, const uint256& hashFork, int 
     // locked coin template
     if (CTemplate::IsLockedCoin(dest))
     {
-        CTemplatePtr ptr = GetTemplate(dest.GetTemplateId());
-        if (!ptr)
-        {
-            return false;
-        }
-        int64 nLockedCoin = boost::dynamic_pointer_cast<CLockedCoinTemplate>(ptr)->LockedCoin(CDestination(), nForkHeight);
-        if (balance.nLocked < nLockedCoin)
-        {
-            balance.nLocked = nLockedCoin;
-        }
-        if (balance.nLocked > coins.nTotalValue)
-        {
-            balance.nLocked = coins.nTotalValue;
-        }
+        // TODO: No redemption temporarily
+        // CTemplatePtr ptr = GetTemplate(dest.GetTemplateId());
+        // if (!ptr)
+        // {
+        //     return false;
+        // }
+        // int64 nLockedCoin = boost::dynamic_pointer_cast<CLockedCoinTemplate>(ptr)->LockedCoin(CDestination(), nForkHeight);
+        // if (balance.nLocked < nLockedCoin)
+        // {
+        //     balance.nLocked = nLockedCoin;
+        // }
+        // if (balance.nLocked > coins.nTotalValue)
+        // {
+        //     balance.nLocked = coins.nTotalValue;
+        // }
+        balance.nLocked = coins.nTotalValue;
     }
     balance.nAvailable = coins.nTotalValue - balance.nLocked;
     return true;
 }
 
-bool CWallet::SignTransaction(const CDestination& destIn, CTransaction& tx, const int32 nForkHeight, bool& fCompleted)
+bool CWallet::SignTransaction(const CDestination& destIn, CTransaction& tx, const vector<uint8>& vchSendToData, const int32 nForkHeight, bool& fCompleted)
 {
     vector<uint8> vchSig;
-
-    bool fDestInRecorded = CTemplate::IsDestInRecorded(tx.sendTo);
-    if (!tx.vchSig.empty())
+    CDestination sendToDelegate;
+    CDestination sendToOwner;
+    bool fDestInRecorded = false;
+    CTemplateId tid;
+    if (tx.sendTo.GetTemplateId(tid) && tid.GetType() == TEMPLATE_VOTE)
     {
-        if (fDestInRecorded)
+        if (!vchSendToData.empty())
         {
-            CDestination preDestIn;
-            if (!CDestInRecordedTemplate::ParseDestIn(tx.vchSig, preDestIn, vchSig) || preDestIn != destIn)
+            CTemplatePtr tempPtr = CTemplate::Import(vchSendToData);
+            if (tempPtr != nullptr && tempPtr->GetTemplateId() == tid)
             {
-                StdError("CWallet", "SignTransaction: ParseDestIn fail, destIn: %s, txid: %s",
-                         destIn.ToString().c_str(), tx.GetHash().GetHex().c_str());
+                boost::dynamic_pointer_cast<CSendToRecordedTemplate>(tempPtr)->GetDelegateOwnerDestination(sendToDelegate, sendToOwner);
+            }
+        }
+        if (sendToDelegate.IsNull() || sendToOwner.IsNull())
+        {
+            CTemplatePtr tempPtr = GetTemplate(tid);
+            if (tempPtr != nullptr)
+            {
+                boost::dynamic_pointer_cast<CSendToRecordedTemplate>(tempPtr)->GetDelegateOwnerDestination(sendToDelegate, sendToOwner);
+            }
+            if (sendToDelegate.IsNull() || sendToOwner.IsNull())
+            {
+                StdError("CWallet", "SignTransaction: sendTo does not load template, sendTo: %s, txid: %s",
+                         CAddress(tx.sendTo).ToString().c_str(), tx.GetHash().GetHex().c_str());
+                return false;
+            }
+        }
+        fDestInRecorded = true;
+    }
+    if (destIn.GetTemplateId(tid) && tid.GetType() == TEMPLATE_PAYMENT)
+    {
+        CTemplatePtr tempPtr = GetTemplate(tid);
+        if (tempPtr != nullptr)
+        {
+            auto payment = boost::dynamic_pointer_cast<CTemplatePayment>(tempPtr);
+            if (nForkHeight < payment->m_height_end && nForkHeight >= (payment->m_height_exec + payment->SafeHeight))
+            {
+                CBlock block;
+                std::multimap<int64, CDestination> mapVotes;
+                if (!pBlockChain->ListDelegatePayment(payment->m_height_exec, block, mapVotes))
+                {
+                    return false;
+                }
+                CProofOfSecretShare dpos;
+                dpos.Load(block.vchProof);
+                uint32 n = dpos.nAgreement.Get32() % mapVotes.size();
+                std::vector<CDestination> votes;
+                for (const auto& d : mapVotes)
+                {
+                    votes.push_back(d.second);
+                }
+                tx.sendTo = votes[n];
+            }
+        }
+        else
+        {
+            return false;
+        }
+    }
+    if (tx.sendTo.GetTemplateId(tid) && tid.GetType() == TEMPLATE_PAYMENT)
+    {
+        CTemplatePtr tempPtr = nullptr;
+        if (!vchSendToData.empty())
+        {
+            tempPtr = CTemplate::Import(vchSendToData);
+        }
+        if (tempPtr == nullptr || tempPtr->GetTemplateId() != tid)
+        {
+            tempPtr = GetTemplate(tid);
+        }
+
+        if (tempPtr != nullptr)
+        {
+            auto payment = boost::dynamic_pointer_cast<CTemplatePayment>(tempPtr);
+            if (tx.nAmount != (payment->m_amount + payment->m_pledge))
+            {
                 return false;
             }
         }
         else
         {
-            vchSig = move(tx.vchSig);
-        }
-    }
-
-    {
-        boost::shared_lock<boost::shared_mutex> rlock(rwKeyStore);
-        if (!SignDestination(destIn, tx, tx.GetSignatureHash(), vchSig, nForkHeight, fCompleted))
-        {
-            StdError("CWallet", "SignTransaction: SignDestination fail, destIn: %s, txid: %s",
-                     destIn.ToString().c_str(), tx.GetHash().GetHex().c_str());
             return false;
         }
     }
 
+    if (fDestInRecorded && !tx.vchSig.empty())
+    {
+        CDestination sendToDelegateTmp;
+        CDestination sendToOwnerTmp;
+        if (!CSendToRecordedTemplate::ParseDest(tx.vchSig, sendToDelegateTmp, sendToOwnerTmp, vchSig))
+        {
+            Error("SignTransaction: Parse dest fail, txid: %s", tx.GetHash().GetHex().c_str());
+            return false;
+        }
+    }
+    else
+    {
+        vchSig = tx.vchSig;
+    }
+
+    set<crypto::CPubKey> setSignedKey;
+    {
+        boost::shared_lock<boost::shared_mutex> rlock(rwKeyStore);
+        if (!SignDestination(destIn, tx, tx.GetSignatureHash(), vchSig, nForkHeight, setSignedKey, fCompleted))
+        {
+            Error("SignTransaction: SignDestination fail, destIn: %s, txid: %s",
+                  destIn.ToString().c_str(), tx.GetHash().GetHex().c_str());
+            return false;
+        }
+    }
+
+    UpdateAutoLock(setSignedKey);
+
     if (fDestInRecorded)
     {
-        CDestInRecordedTemplate::RecordDestIn(destIn, vchSig, tx.vchSig);
+        CSendToRecordedTemplate::RecordDest(sendToDelegate, sendToOwner, vchSig, tx.vchSig);
     }
     else
     {
@@ -597,25 +697,28 @@ bool CWallet::SignTransaction(const CDestination& destIn, CTransaction& tx, cons
 bool CWallet::ArrangeInputs(const CDestination& destIn, const uint256& hashFork, int nForkHeight, CTransaction& tx)
 {
     tx.vInput.clear();
-    int nMaxInput = (MAX_TX_SIZE - MAX_SIGNATURE_SIZE - 4) / 33;
+    //int nMaxInput = (MAX_TX_SIZE - MAX_SIGNATURE_SIZE - 4) / 33;
     int64 nTargetValue = tx.nAmount + tx.nTxFee;
 
     // locked coin template
     if (CTemplate::IsLockedCoin(destIn))
     {
-        CTemplatePtr ptr = GetTemplate(destIn.GetTemplateId());
-        if (!ptr)
-        {
-            StdError("CWallet", "ArrangeInputs: GetTemplate fail, destIn: %s", destIn.ToString().c_str());
-            return false;
-        }
-        nTargetValue += boost::dynamic_pointer_cast<CLockedCoinTemplate>(ptr)->LockedCoin(tx.sendTo, nForkHeight);
+        // TODO: No redemption temporarily
+
+        return false;
+        // CTemplatePtr ptr = GetTemplate(destIn.GetTemplateId());
+        // if (!ptr)
+        // {
+        //     StdError("CWallet", "ArrangeInputs: GetTemplate fail, destIn: %s", destIn.ToString().c_str());
+        //     return false;
+        // }
+        // nTargetValue += boost::dynamic_pointer_cast<CLockedCoinTemplate>(ptr)->LockedCoin(tx.sendTo, nForkHeight);
     }
 
     vector<CTxOutPoint> vCoins;
     {
         boost::shared_lock<boost::shared_mutex> rlock(rwWalletTx);
-        int64 nValueIn = SelectCoins(destIn, hashFork, nForkHeight, tx.GetTxTime(), nTargetValue, nMaxInput, vCoins);
+        int64 nValueIn = SelectCoins(destIn, hashFork, nForkHeight, tx.GetTxTime(), nTargetValue, MAX_TX_INPUT_COUNT, vCoins);
         if (nValueIn < nTargetValue)
         {
             StdError("CWallet", "ArrangeInputs: SelectCoins coin not enough, destIn: %s, nValueIn: %ld < nTargeValue: %ld",
@@ -693,7 +796,7 @@ bool CWallet::UpdateTx(const uint256& hashFork, const CAssembledTx& tx)
 
 bool CWallet::LoadTxUnspent(const CWalletTx& wtx)
 {
-    StdTrace("CWallet", "LoadTxUnspent: txid: %s", wtx.txid.GetHex().c_str());
+    //StdTrace("CWallet", "LoadTxUnspent: txid: %s", wtx.txid.GetHex().c_str());
     std::shared_ptr<CWalletTx> spWalletTx(new CWalletTx(wtx));
     mapWalletTx.insert(make_pair(wtx.txid, spWalletTx));
 
@@ -729,7 +832,7 @@ bool CWallet::LoadTxUnspent(const CWalletTx& wtx)
 
 bool CWallet::LoadTxSpent(const CWalletTx& wtx)
 {
-    StdTrace("CWallet", "LoadTxSpent: txid: %s", wtx.txid.GetHex().c_str());
+    //StdTrace("CWallet", "LoadTxSpent: txid: %s", wtx.txid.GetHex().c_str());
     vector<uint256> vFork;
     GetWalletTxFork(wtx.hashFork, wtx.nBlockHeight, vFork);
     if (wtx.IsFromMe())
@@ -1334,7 +1437,8 @@ int64 CWallet::SelectCoins(const CDestination& dest, const uint256& hashFork, in
 
     for (const CWalletTxOut& out : walletCoins.setCoins)
     {
-        if (out.IsLocked(nForkHeight) || out.GetTxTime() > nTxTime)
+        if (out.IsLocked(nForkHeight) || out.GetTxTime() > nTxTime
+            || (out.spWalletTx->nType == CTransaction::TX_CERT && out.n == 0))
         {
             continue;
         }
@@ -1398,9 +1502,9 @@ int64 CWallet::SelectCoins(const CDestination& dest, const uint256& hashFork, in
     return nValueRet;
 }
 
-bool CWallet::SignPubKey(const crypto::CPubKey& pubkey, const uint256& hash, vector<uint8>& vchSig)
+bool CWallet::SignPubKey(const crypto::CPubKey& pubkey, const uint256& hash, vector<uint8>& vchSig, std::set<crypto::CPubKey>& setSignedKey)
 {
-    map<crypto::CPubKey, CWalletKeyStore>::iterator it = mapKeyStore.find(pubkey);
+    auto it = mapKeyStore.find(pubkey);
     if (it == mapKeyStore.end())
     {
         StdError("CWallet", "SignPubKey: find privkey fail, pubkey: %s", pubkey.GetHex().c_str());
@@ -1417,46 +1521,42 @@ bool CWallet::SignPubKey(const crypto::CPubKey& pubkey, const uint256& hash, vec
         return false;
     }
 
-    // update auto unlock time
-    UpdateAutoLock(it->second);
+    setSignedKey.insert(pubkey);
     return true;
 }
 
-bool CWallet::SignMultiPubKey(const set<crypto::CPubKey>& setPubKey, const uint256& hash, const uint256& hashAnchor, const int32 nForkHeight, vector<uint8>& vchSig)
+bool CWallet::SignMultiPubKey(const set<crypto::CPubKey>& setPubKey, const uint256& hash,
+                              const uint256& hashAnchor, vector<uint8>& vchSig,
+                              std::set<crypto::CPubKey>& setSignedKey)
 {
     bool fSigned = false;
     for (auto& pubkey : setPubKey)
     {
-        map<crypto::CPubKey, CWalletKeyStore>::iterator it = mapKeyStore.find(pubkey);
+        auto it = mapKeyStore.find(pubkey);
         if (it != mapKeyStore.end() && it->second.key.IsPrivKey())
         {
-            if (nForkHeight > 0 && nForkHeight < HEIGHT_HASH_MULTI_SIGNER)
-            {
-                fSigned |= it->second.key.MultiSignDefect(setPubKey, hashAnchor, hash, vchSig);
-            }
-            else
-            {
-                fSigned |= it->second.key.MultiSign(setPubKey, hash, vchSig);
-            }
-            UpdateAutoLock(it->second);
+            fSigned |= it->second.key.MultiSign(setPubKey, hash, vchSig);
+            setSignedKey.insert(pubkey);
         }
     }
     return fSigned;
 }
 
-bool CWallet::SignDestination(const CDestination& destIn, const CTransaction& tx, const uint256& hash, vector<uint8>& vchSig, const int32 nForkHeight, bool& fCompleted)
+bool CWallet::SignDestination(const CDestination& destIn, const CTransaction& tx, const uint256& hash,
+                              vector<uint8>& vchSig, const int32 nForkHeight,
+                              std::set<crypto::CPubKey>& setSignedKey, bool& fCompleted)
 {
     if (destIn.IsPubKey())
     {
-        fCompleted = SignPubKey(destIn.GetPubKey(), hash, vchSig);
+        fCompleted = SignPubKey(destIn.GetPubKey(), hash, vchSig, setSignedKey);
         if (!fCompleted)
         {
             StdError("CWallet", "SignDestination: PubKey SignPubKey fail, txid: %s, destIn: %s", tx.GetHash().GetHex().c_str(), destIn.ToString().c_str());
-            return false;
         }
         return fCompleted;
     }
-    else if (destIn.IsTemplate())
+
+    if (destIn.IsTemplate())
     {
         CTemplatePtr ptr = GetTemplate(destIn.GetTemplateId());
         if (!ptr)
@@ -1480,7 +1580,7 @@ bool CWallet::SignDestination(const CDestination& destIn, const CTransaction& tx
         }
         else if (setSubDest.size() == 1)
         {
-            if (!SignDestination(*setSubDest.begin(), tx, hash, vchSubSig, nForkHeight, fCompleted))
+            if (!SignDestination(*setSubDest.begin(), tx, hash, vchSubSig, nForkHeight, setSignedKey, fCompleted))
             {
                 StdError("CWallet", "SignDestination: SignDestination fail, txid: %s", tx.GetHash().GetHex().c_str());
                 return false;
@@ -1493,47 +1593,64 @@ bool CWallet::SignDestination(const CDestination& destIn, const CTransaction& tx
             {
                 if (!dest.IsPubKey())
                 {
-                    StdError("CWallet", "SignDestination: dest not is pubkey, txid: %s, dest: %s", tx.GetHash().GetHex().c_str(), dest.ToString().c_str());
+                    StdError("CWallet", "SignDestination: dest not is pubkey, txid: %s, dest: %s",
+                             tx.GetHash().GetHex().c_str(), dest.ToString().c_str());
                     return false;
                 }
                 setPubKey.insert(dest.GetPubKey());
             }
 
-            if (!SignMultiPubKey(setPubKey, hash, tx.hashAnchor, nForkHeight, vchSubSig))
+            if (!SignMultiPubKey(setPubKey, hash, tx.hashAnchor, vchSubSig, setSignedKey))
             {
                 StdError("CWallet", "SignDestination: SignMultiPubKey fail, txid: %s", tx.GetHash().GetHex().c_str());
                 return false;
             }
         }
-        // if (ptr->GetTemplateType() == TEMPLATE_EXCHANGE)
-        // {
-        //     CTemplateExchangePtr pe = boost::dynamic_pointer_cast<CTemplateExchange>(ptr);
-        //     return pe->BuildTxSignature(hash, tx.hashAnchor, tx.sendTo, nForkHeight, vchSubSig, vchSig);
-        // }
-        // else
+
+        if (ptr->GetTemplateType() == TEMPLATE_EXCHANGE)
         {
-            if (!ptr->BuildTxSignature(hash, tx.hashAnchor, tx.sendTo, nForkHeight, vchSubSig, vchSig, fCompleted))
+            CTemplateExchangePtr pe = boost::dynamic_pointer_cast<CTemplateExchange>(ptr);
+            vchSig = tx.vchSig;
+            return pe->BuildTxSignature(hash, tx.nType, tx.hashAnchor, tx.sendTo, vchSubSig, vchSig);
+        }
+        else
+        {
+            if (!ptr->BuildTxSignature(hash, tx.nType, tx.hashAnchor, tx.sendTo, nForkHeight, vchSubSig, vchSig, fCompleted))
             {
                 StdError("CWallet", "SignDestination: BuildTxSignature fail, txid: %s", tx.GetHash().GetHex().c_str());
                 return false;
             }
         }
+
+        return true;
     }
-    else
-    {
-        StdError("CWallet", "SignDestination: destIn type error, txid: %s, destIn: %s", tx.GetHash().GetHex().c_str(), destIn.ToString().c_str());
-        return false;
-    }
-    return true;
+
+    StdError("CWallet", "SignDestination: destIn type error, txid: %s, destIn: %s",
+             tx.GetHash().GetHex().c_str(), destIn.ToString().c_str());
+    return false;
 }
 
-void CWallet::UpdateAutoLock(CWalletKeyStore& keystore)
+void CWallet::UpdateAutoLock(const std::set<crypto::CPubKey>& setSignedKey)
 {
-    if (keystore.nAutoDelayTime > 0)
+    if (setSignedKey.empty())
     {
-        CancelTimer(keystore.nTimerId);
-        keystore.nAutoLockTime = GetTime() + keystore.nAutoDelayTime;
-        keystore.nTimerId = SetTimer(keystore.nAutoDelayTime * 1000, boost::bind(&CWallet::AutoLock, this, _1, keystore.key.GetPubKey()));
+        return;
+    }
+
+    boost::unique_lock<boost::shared_mutex> wlock(rwKeyStore);
+    for (auto& key : setSignedKey)
+    {
+        map<crypto::CPubKey, CWalletKeyStore>::iterator it = mapKeyStore.find(key);
+        if (it != mapKeyStore.end() && it->second.key.IsPrivKey())
+        {
+            CWalletKeyStore& keystore = (*it).second;
+            if (keystore.nAutoDelayTime > 0)
+            {
+                CancelTimer(keystore.nTimerId);
+                keystore.nAutoLockTime = GetTime() + keystore.nAutoDelayTime;
+                keystore.nTimerId = SetTimer(keystore.nAutoDelayTime * 1000, boost::bind(&CWallet::AutoLock, this, _1, keystore.key.GetPubKey()));
+            }
+        }
     }
 }
 

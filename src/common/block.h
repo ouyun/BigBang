@@ -70,6 +70,10 @@ public:
     {
         return (nType & 1);
     }
+    bool IsSubsidiary() const
+    {
+        return (nType == BLOCK_SUBSIDIARY);
+    }
     bool IsExtended() const
     {
         return (nType == BLOCK_EXTENDED);
@@ -213,17 +217,17 @@ inline std::string GetBlockTypeStr(uint16 nType, uint16 nMintType)
         return std::string("origin");
     if (nType == CBlock::BLOCK_EXTENDED)
         return std::string("extended");
-    std::string str("undefined-");
+    std::string str("undefined");
     if (nType == CBlock::BLOCK_PRIMARY)
-        str = "primary-";
+        str = "primary";
     if (nType == CBlock::BLOCK_SUBSIDIARY)
-        str = "subsidiary-";
+        str = "subsidiary";
     if (nType == CBlock::BLOCK_VACANT)
         str = "vacant";
     if (nMintType == CTransaction::TX_WORK)
-        return (str + "pow");
+        return (str + "-pow");
     if (nMintType == CTransaction::TX_STAKE)
-        return (str + "dpos");
+        return (str + "-dpos");
     return str;
 }
 

@@ -29,6 +29,7 @@ class CInvPeer
         CUInt256List listKnown;
         std::set<uint256> setAssigned;
         int64 nNextGetBlocksTime;
+        std::map<uint32, std::set<uint256>> mapRepeat;
     };
 
 public:
@@ -79,6 +80,19 @@ public:
         CUInt256ByValue& idxByValue = listKnown.get<1>();
         idxByValue.erase(inv.nHash);
         GetAssigned(inv.nType).erase(inv.nHash);
+        if (inv.nType == network::CInv::MSG_BLOCK)
+        {
+            std::map<uint32, std::set<uint256>>& mapData = invKnown[network::CInv::MSG_BLOCK - network::CInv::MSG_TX].mapRepeat;
+            std::map<uint32, std::set<uint256>>::iterator it = mapData.find(CBlock::GetBlockHeightByHash(inv.nHash));
+            if (it != mapData.end())
+            {
+                it->second.erase(inv.nHash);
+                if (it->second.empty())
+                {
+                    mapData.erase(it);
+                }
+            }
+        }
     }
     bool KnownInvExists(const network::CInv& inv)
     {
@@ -148,6 +162,16 @@ public:
     {
         return (GetTime() >= invKnown[network::CInv::MSG_BLOCK - network::CInv::MSG_TX].nNextGetBlocksTime);
     }
+    int64 AddRepeatBlock(const uint256& hash)
+    {
+        if (KnownInvExists(network::CInv(network::CInv::MSG_BLOCK, hash)))
+        {
+            std::set<uint256>& setHash = invKnown[network::CInv::MSG_BLOCK - network::CInv::MSG_TX].mapRepeat[CBlock::GetBlockHeightByHash(hash)];
+            setHash.insert(hash);
+            return setHash.size();
+        }
+        return 0;
+    }
 
 public:
     CInvPeerState invKnown[2];
@@ -164,7 +188,6 @@ public:
     void Remove(const uint256& hash);
     void GetNext(const uint256& prev, std::vector<uint256>& vNext);
     void GetNext(const uint256& prev, std::vector<uint256>& vNext, std::set<uint256>& setHash);
-    void RemoveNext(const uint256& prev);
     void RemoveBranch(const uint256& root, std::vector<uint256>& vBranch);
 
 protected:
@@ -178,7 +201,8 @@ class CSchedule
     {
     public:
         CInvState()
-          : nAssigned(0), objReceived(CNil()), nRecvInvTime(0), nRecvObjTime(0), nGetDataCount(0), fRepeatMintBlock(false) {}
+          : nAssigned(0), objReceived(CNil()), nRecvInvTime(0), nRecvObjTime(0), nClearObjTime(0),
+            nGetDataCount(0), fRepeatMintBlock(false), fVerifyPowBlock(false) {}
         bool IsReceived()
         {
             return (objReceived.type() != typeid(CNil));
@@ -190,8 +214,11 @@ class CSchedule
         std::set<uint64> setKnownPeer;
         int64 nRecvInvTime;
         int64 nRecvObjTime;
+        int64 nClearObjTime;
         int nGetDataCount;
         bool fRepeatMintBlock;
+        bool fVerifyPowBlock;
+        uint256 hashRefBlock;
     };
 
 public:
@@ -203,7 +230,18 @@ public:
         MAX_REGETDATA_COUNT = 10,
         MAX_INV_WAIT_TIME = 3600,
         MAX_OBJ_WAIT_TIME = 7200,
-        MAX_REPEAT_BLOCK_TIME = 180
+        MAX_REPEAT_BLOCK_TIME = 180,
+        MAX_REPEAT_BLOCK_COUNT = 4,
+        MAX_SUB_BLOCK_DELAYED_TIME = 120,
+        MAX_CERTTX_DELAYED_TIME = 180,
+        MAX_SUBMIT_POW_TIMEOUT = 10,
+        MAX_MINTTX_DELAYED_TIME = 180
+    };
+
+    enum
+    {
+        CACHE_POW_BLOCK_TYPE_LOCAL = 0,
+        CACHE_POW_BLOCK_TYPE_REMOTE = 1
     };
 
 public:
@@ -215,6 +253,7 @@ public:
     bool AddNewInv(const network::CInv& inv, uint64 nPeerNonce);
     bool RemoveInv(const network::CInv& inv, std::set<uint64>& setKnownPeer);
     bool ReceiveBlock(uint64 nPeerNonce, const uint256& hash, const CBlock& block, std::set<uint64>& setSchedPeer);
+    void RemoveInvState(const network::CInv& inv);
     bool ReceiveTx(uint64 nPeerNonce, const uint256& txid, const CTransaction& tx, std::set<uint64>& setSchedPeer);
     CBlock* GetBlock(const uint256& hash, uint64& nNonceSender);
     CTransaction* GetTransaction(const uint256& txid, uint64& nNonceSender);
@@ -232,8 +271,23 @@ public:
     int GetLocatorInvBlockHash(uint64 nPeerNonce, uint256& hashBlock);
     void SetLocatorInvBlockHash(uint64 nPeerNonce, int nHeight, const uint256& hashBlock, const uint256& hashNext);
     void SetNextGetBlocksTime(uint64 nPeerNonce, int nWaitTime);
-    bool SetRepeatBlock(uint64 nNonce, const uint256& hash, const CBlock& block);
+    bool SetRepeatBlock(uint64 nNonce, const uint256& hash);
     bool IsRepeatBlock(const uint256& hash);
+    void AddRefBlock(const uint256& hashRefBlock, const uint256& hashFork, const uint256& hashBlock);
+    void RemoveRefBlock(const uint256& hashForkBlock);
+    void GetNextRefBlock(const uint256& hashRefBlock, std::vector<std::pair<uint256, uint256>>& vNext);
+    bool SetDelayedClear(const network::CInv& inv, int64 nDelayedTime);
+    void GetSubmitCachePowBlock(const CConsensusParam& consParam, std::vector<std::pair<uint256, int>>& vPowBlockHash);
+    bool GetFirstCachePowBlock(int nHeight, uint256& hashFirstBlock);
+    bool AddCacheLocalPowBlock(const CBlock& block, bool& fFirst);
+    bool CheckCacheLocalPowBlock(int nHeight);
+    bool GetCacheLocalPowBlock(const uint256& hash, CBlock& block);
+    void RemoveCacheLocalPowBlock(const uint256& hash);
+    bool GetCachePowBlock(const uint256& hash, CBlock& block);
+    bool CheckCachePowBlockState(const uint256& hash);
+    void RemoveHeightBlock(int nHeight, const uint256& hash);
+    bool GetPowBlockState(const uint256& hash, bool& fVerifyPowBlockOut);
+    void SetPowBlockVerifyState(const uint256& hash, bool fVerifyPowBlockIn);
 
 protected:
     void RemoveOrphan(const network::CInv& inv);
@@ -246,6 +300,9 @@ protected:
     std::map<uint64, CInvPeer> mapPeer;
     std::map<network::CInv, CInvState> mapState;
     std::set<network::CInv> setMissPrevTxInv;
+    std::map<uint256, std::map<uint256, uint256>> mapRefBlock;
+    std::map<int, std::vector<std::pair<uint256, int>>> mapHeightBlock;
+    std::map<int, CBlock> mapKcPowBlock;
 };
 
 } // namespace bigbang
